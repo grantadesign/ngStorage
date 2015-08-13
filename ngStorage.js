@@ -206,6 +206,7 @@
                             _last$storage = angular.copy($storage);
 
                             $rootScope.$apply();
+                            $rootScope.$emit("ngStorageUpdated-" + k);
                         });
                     }
                 });
