@@ -71,6 +71,19 @@
             deserializer = s;
           };
 
+          var timestamper = function() {
+              return new Date().toString();
+          }
+
+          this.setTimestamper = function (t) {
+              // mainly for tests
+              if (typeof t !== 'function') {
+                  throw new TypeError('[ngStorage] - ' + storageType + 'Provider.setTimestamper expects a function.');
+              }
+
+              timestamper = t;
+          }
+
           this.$get = [
               '$rootScope',
               '$window',
@@ -150,7 +163,7 @@
                 _last$storage = angular.copy($storage);
 
                 var setUpdatedItem = function(k) {
-                    webStorage.setItem("ngStorageUpdated-" + k, new Date().toString());
+                    webStorage.setItem("ngStorageUpdated-" + k, timestamper());
                 }
 
                 $rootScope.$watch(function() {

@@ -26,7 +26,8 @@ describe('ngStorage', function() {
 
         describe('$' + storageType, function() {
 
-            var $window, $rootScope, $storage, $storageProvider, $timeout;
+            var $window, $rootScope, $storage, $storageProvider, $timeout,
+                timestamp = 'currentDate';
 
             function initStorage(initialValues) {
 
@@ -65,6 +66,7 @@ describe('ngStorage', function() {
                     }
                 ]);
 
+                $storageProvider.setTimestamper(function() { return timestamp; });
             }
 
             it('should, upon loading, contain a value for each ngStorage- key in window.' +
@@ -100,9 +102,9 @@ describe('ngStorage', function() {
 
                 $timeout.flush();
 
-                setTimeout(function() {
+                setTimeout(function () {
                     expect($window[storageType].data)
-                        .to.deep.equal({'ngStorage-newKey': '"some value"'});
+                        .to.deep.equal({'ngStorage-newKey': '"some value"', 'ngStorageUpdated-newKey': timestamp});
                     done();
                 }, 125);
 
@@ -119,7 +121,7 @@ describe('ngStorage', function() {
 
                 setTimeout(function() {
                     expect($window[storageType].data)
-                        .to.deep.equal({'ngStorage-existing': '"updated"'});
+                        .to.deep.equal({ 'ngStorage-existing': '"updated"', 'ngStorageUpdated-existing': timestamp });
                     done();
                 }, 125);
 
@@ -135,7 +137,7 @@ describe('ngStorage', function() {
                 $timeout.flush();
 
                 setTimeout(function() {
-                    expect($window[storageType].data).to.deep.equal({});
+                    expect($window[storageType].data).to.deep.equal({ 'ngStorageUpdated-existing': timestamp });
                     done();
                 }, 125);
 
@@ -161,7 +163,8 @@ describe('ngStorage', function() {
                 it('should delete all ngStorage- keys from window.' + storageType, function() {
 
                     expect($window[storageType].data).to.deep.equal({
-                        nonNgStorage: 'this should not be changed'
+                        nonNgStorage: 'this should not be changed',
+                        'ngStorageUpdated-delete': timestamp
                     });
 
                 });
@@ -200,7 +203,9 @@ describe('ngStorage', function() {
 
                     expect($window[storageType].data).to.deep.equal({
                         nonNgStorage: 'this should not be changed',
-                        'ngStorage-some': '"value"'
+                        'ngStorage-some': '"value"',
+                        'ngStorageUpdated-some': timestamp,
+                        'ngStorageUpdated-delete': timestamp
                     });
 
                 });
@@ -211,7 +216,7 @@ describe('ngStorage', function() {
                     delete $storage.$reset;
                     delete $storage.$sync;
 
-                    expect($storage).to.deep.equal({some: 'value'});
+                    expect($storage).to.deep.equal({ some: 'value' });
 
                 });
 
@@ -274,11 +279,12 @@ describe('ngStorage', function() {
 
                     initStorage({'ngStorage-existing': '"update me"'});
 
+                    $window[storageType].setItem('ngStorage-existing', '"updated"');
                     var updateEvent = {
-                        key: 'ngStorage-existing',
-                        newValue: '"updated"'
+                        key: 'ngStorageUpdated-existing'
                     };
                     $window.eventHandlers.storage(updateEvent);
+                    $timeout.flush();
                 });
 
                 it('should reflect the update', function() {
@@ -292,11 +298,12 @@ describe('ngStorage', function() {
 
                     initStorage({});
 
+                    $window[storageType].setItem('ngStorage-value', '"new"');
                     var updateEvent = {
-                        key: 'ngStorage-value',
-                        newValue: '"new"'
+                        key: 'ngStorageUpdated-value'
                     };
                     $window.eventHandlers.storage(updateEvent);
+                    $timeout.flush();
                 });
 
                 it('should reflect the addition', function() {
@@ -310,10 +317,12 @@ describe('ngStorage', function() {
 
                     initStorage({'ngStorage-existing': '"delete me"'});
 
+                    $window[storageType].removeItem('ngStorage-existing');
                     var updateEvent = {
-                        key: 'ngStorage-existing',
+                        key: 'ngStorageUpdated-existing'
                     };
                     $window.eventHandlers.storage(updateEvent);
+                    $timeout.flush();
                 });
 
                 it('should reflect the deletion', function() {
