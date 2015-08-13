@@ -183,6 +183,12 @@
 
                 // #6: Use `$window.addEventListener` instead of `angular.element` to avoid the jQuery-specific `event.originalEvent`
                 $window.addEventListener && $window.addEventListener('storage', function (event) {
+                    if ($window.document && $window.document.hasFocus && $window.document.hasFocus()) {
+                        // the specs say that the storage event should only be fired in other tabs/windows,
+                        //      but IE will fire it in all of them
+                        return;
+                    }
+
                     // need to check ngStorageUpdated instead of the 'real' values
                     //      because in IE if the value is too big it won't fire the event
                     if ('ngStorageUpdated-' === event.key.slice(0, 17)) {
