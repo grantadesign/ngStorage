@@ -71,19 +71,6 @@
             deserializer = s;
           };
 
-          var timestamper = function() {
-              return new Date().toString();
-          }
-
-          this.setTimestamper = function (t) {
-              // mainly for tests
-              if (typeof t !== 'function') {
-                  throw new TypeError('[ngStorage] - ' + storageType + 'Provider.setTimestamper expects a function.');
-              }
-
-              timestamper = t;
-          }
-
           this.$get = [
               '$rootScope',
               '$window',
@@ -162,8 +149,10 @@
 
                 _last$storage = angular.copy($storage);
 
-                var setUpdatedItem = function(k) {
-                    webStorage.setItem("ngStorageUpdated-" + k, timestamper());
+                var triggerUpdatedItemStorageEvent = function (k) {
+                    // we need to trigger the "storage" event, immediately delete it so it doesn't hang around forever
+                    webStorage.setItem("ngStorageUpdated-" + k, new Date().toString());
+                    webStorage.removeItem("ngStorageUpdated-" + k);
                 }
 
                 $rootScope.$watch(function() {
@@ -176,7 +165,7 @@
                             angular.forEach($storage, function(v, k) {
                                 if (angular.isDefined(v) && '$' !== k[0]) {
                                     webStorage.setItem(storageKeyPrefix + k, serializer(v));
-                                    setUpdatedItem(k);
+                                    triggerUpdatedItemStorageEvent(k);
                                 }
 
                                 delete temp$storage[k];
@@ -184,7 +173,7 @@
 
                             for (var k in temp$storage) {
                                 webStorage.removeItem(storageKeyPrefix + k);
-                                setUpdatedItem(k);
+                                triggerUpdatedItemStorageEvent(k);
                             }
 
                             _last$storage = angular.copy($storage);
@@ -197,9 +186,14 @@
                     // need to check ngStorageUpdated instead of the 'real' values
                     //      because in IE if the value is too big it won't fire the event
                     if ('ngStorageUpdated-' === event.key.slice(0, 17)) {
+                        if (!event.newValue) {
+                            // if the updated key was deleted, don't need to update storage
+                            return;
+                        }
+
                         var k = event.key.slice(17);
                         // timeout needed otherwise webStorage isn't up to date in the other window
-                        $timeout(function () {
+                        $window.setTimeout(function () {
                             var newValue = webStorage.getItem('ngStorage-' + k);
                             newValue ? $storage[k] = deserializer(newValue) : delete $storage[k];
 
