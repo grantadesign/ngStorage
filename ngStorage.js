@@ -44,6 +44,7 @@
     function _storageProvider(storageType) {
         return function () {
           var storageKeyPrefix = 'ngStorage-';
+          var updatedKeyPrefix = "ngStorageUpdated-";
 
           this.setKeyPrefix = function (prefix) {
             if (typeof prefix !== 'string') {
@@ -151,8 +152,8 @@
 
                 var triggerUpdatedItemStorageEvent = function (k) {
                     // we need to trigger the "storage" event, immediately delete it so it doesn't hang around forever
-                    webStorage.setItem("ngStorageUpdated-" + k, new Date().toString());
-                    webStorage.removeItem("ngStorageUpdated-" + k);
+                    webStorage.setItem(updatedKeyPrefix + k, new Date().toString());
+                    webStorage.removeItem(updatedKeyPrefix + k);
                 }
 
                 $rootScope.$watch(function() {
@@ -195,13 +196,13 @@
 
                     // need to check ngStorageUpdated instead of the 'real' values
                     //      because in IE if the value is too big it won't fire the event
-                    if ('ngStorageUpdated-' === event.key.slice(0, 17)) {
+                    if (updatedKeyPrefix === event.key.slice(0, updatedKeyPrefix.length)) {
                         if (!event.newValue) {
                             // if the updated key was deleted, don't need to update storage
                             return;
                         }
 
-                        var k = event.key.slice(17);
+                        var k = event.key.slice(updatedKeyPrefix.length);
                         // timeout needed otherwise webStorage isn't up to date in the other window
                         $window.setTimeout(function () {
                             var newValue = webStorage.getItem('ngStorage-' + k);
@@ -210,7 +211,7 @@
                             _last$storage = angular.copy($storage);
 
                             $rootScope.$apply();
-                            $rootScope.$emit("ngStorageUpdated-" + k);
+                            $rootScope.$emit(updatedKeyPrefix + k);
                         });
                     }
                 });
