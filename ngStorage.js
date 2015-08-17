@@ -1,13 +1,27 @@
-'use strict';
+(function (root, factory) {
+  'use strict';
 
-(function() {
+  if (typeof define === 'function' && define.amd) {
+    define(['angular'], factory);
+  } else if (typeof exports === 'object') {
+    module.exports = factory(require('angular'));
+  } else {
+    // Browser globals (root is window), we don't register it.
+    factory(root.angular);
+  }
+}(this , function (angular) {
+    'use strict';
+
+    // RequireJS does not pass in Angular to us (will be undefined).
+    // Fallback to window which should mostly be there.
+    angular = angular || window.angular;
 
     /**
      * @ngdoc overview
      * @name ngStorage
      */
 
-    angular.module('ngStorage', []).
+    return angular.module('ngStorage', [])
 
     /**
      * @ngdoc object
@@ -16,7 +30,7 @@
      * @requires $window
      */
 
-    factory('$localStorage', _storageFactory('localStorage')).
+    .provider('$localStorage', _storageProvider('localStorage'))
 
     /**
      * @ngdoc object
@@ -25,81 +39,187 @@
      * @requires $window
      */
 
-    factory('$sessionStorage', _storageFactory('sessionStorage'));
+    .provider('$sessionStorage', _storageProvider('sessionStorage'));
 
-    function _storageFactory(storageType) {
-        return [
-            '$rootScope',
-            '$window',
-            '$log',
+    function _storageProvider(storageType) {
+        return function () {
+          var storageKeyPrefix = 'ngStorage-';
+          var updatedKeyPrefix = "ngStorageUpdated-";
 
-            function(
-                $rootScope,
-                $window,
-                $log
-            ){
+          this.setKeyPrefix = function (prefix) {
+            if (typeof prefix !== 'string') {
+              throw new TypeError('[ngStorage] - ' + storageType + 'Provider.setKeyPrefix() expects a String.');
+            }
+            storageKeyPrefix = prefix;
+          };
+
+          var serializer = angular.toJson;
+          var deserializer = angular.fromJson;
+
+          this.setSerializer = function (s) {
+            if (typeof s !== 'function') {
+              throw new TypeError('[ngStorage] - ' + storageType + 'Provider.setSerializer expects a function.');
+            }
+
+            serializer = s;
+          };
+
+          this.setDeserializer = function (d) {
+            if (typeof d !== 'function') {
+              throw new TypeError('[ngStorage] - ' + storageType + 'Provider.setDeserializer expects a function.');
+            }
+
+            deserializer = s;
+          };
+
+          this.$get = [
+              '$rootScope',
+              '$window',
+              '$log',
+              '$timeout',
+
+              function(
+                  $rootScope,
+                  $window,
+                  $log,
+                  $timeout
+              ){
+                function isStorageSupported(storageType) {
+
+                    // Some installations of IE, for an unknown reason, throw "SCRIPT5: Error: Access is denied"
+                    // when accessing window.localStorage. This happens before you try to do anything with it. Catch
+                    // that error and allow execution to continue.
+
+                    // fix 'SecurityError: DOM Exception 18' exception in Desktop Safari, Mobile Safari
+                    // when "Block cookies": "Always block" is turned on
+                    var supported;
+                    try {
+                        supported = $window[storageType];
+                    }
+                    catch (err) {
+                        supported = false;
+                    }
+
+                    // When Safari (OS X or iOS) is in private browsing mode, it appears as though localStorage
+                    // is available, but trying to call .setItem throws an exception below:
+                    // "QUOTA_EXCEEDED_ERR: DOM Exception 22: An attempt was made to add something to storage that exceeded the quota."
+                    if (supported && storageType === 'localStorage') {
+                        var key = '__' + Math.round(Math.random() * 1e7);
+
+                        try {
+                            localStorage.setItem(key, key);
+                            localStorage.removeItem(key);
+                        }
+                        catch (err) {
+                            supported = false;
+                        }
+                    }
+
+                    return supported;
+                }
+
                 // #9: Assign a placeholder object if Web Storage is unavailable to prevent breaking the entire AngularJS app
-                var webStorage = $window[storageType] || ($log.warn('This browser does not support Web Storage!'), {}),
+                var webStorage = isStorageSupported(storageType) || ($log.warn('This browser does not support Web Storage!'), {setItem: angular.noop, getItem: angular.noop}),
                     $storage = {
                         $default: function(items) {
                             for (var k in items) {
                                 angular.isDefined($storage[k]) || ($storage[k] = items[k]);
                             }
 
+                            $storage.$sync();
                             return $storage;
                         },
                         $reset: function(items) {
                             for (var k in $storage) {
-                                '$' === k[0] || delete $storage[k];
+                                '$' === k[0] || (delete $storage[k] && webStorage.removeItem(storageKeyPrefix + k));
                             }
 
                             return $storage.$default(items);
+                        },
+                        $sync: function () {
+                            for (var i = 0, l = webStorage.length, k; i < l; i++) {
+                                // #8, #10: `webStorage.key(i)` may be an empty string (or throw an exception in IE9 if `webStorage` is empty)
+                                (k = webStorage.key(i)) && storageKeyPrefix === k.slice(0, 10) && ($storage[k.slice(10)] = deserializer(webStorage.getItem(k)));
+                            }
                         }
                     },
                     _last$storage,
                     _debounce;
 
-                for (var i = 0, k; i < webStorage.length; i++) {
-                    // #8, #10: `webStorage.key(i)` may be an empty string (or throw an exception in IE9 if `webStorage` is empty)
-                    (k = webStorage.key(i)) && 'ngStorage-' === k.slice(0, 10) && ($storage[k.slice(10)] = angular.fromJson(webStorage.getItem(k)));
-                }
+                $storage.$sync();
 
                 _last$storage = angular.copy($storage);
 
+                var triggerUpdatedItemStorageEvent = function (k) {
+                    // we need to trigger the "storage" event, immediately delete it so it doesn't hang around forever
+                    webStorage.setItem(updatedKeyPrefix + k, new Date().toString());
+                    webStorage.removeItem(updatedKeyPrefix + k);
+                }
+
                 $rootScope.$watch(function() {
-                    _debounce || (_debounce = setTimeout(function() {
+                    var temp$storage;
+                    _debounce || (_debounce = $timeout(function() {
                         _debounce = null;
 
                         if (!angular.equals($storage, _last$storage)) {
+                            temp$storage = angular.copy(_last$storage);
                             angular.forEach($storage, function(v, k) {
-                                angular.isDefined(v) && '$' !== k[0] && webStorage.setItem('ngStorage-' + k, angular.toJson(v));
+                                if (angular.isDefined(v) && '$' !== k[0]) {
+                                    var serializedValue = serializer(v);
+                                    var webStorageKey = storageKeyPrefix + k;
+                                    if (!angular.equals(serializedValue, webStorage.getItem(webStorageKey))) {
+                                        webStorage.setItem(webStorageKey, serializedValue);
+                                        triggerUpdatedItemStorageEvent(k);
+                                    }
+                                }
 
-                                delete _last$storage[k];
+                                delete temp$storage[k];
                             });
 
-                            for (var k in _last$storage) {
-                                webStorage.removeItem('ngStorage-' + k);
+                            for (var k in temp$storage) {
+                                webStorage.removeItem(storageKeyPrefix + k);
+                                triggerUpdatedItemStorageEvent(k);
                             }
 
                             _last$storage = angular.copy($storage);
                         }
-                    }, 100));
+                    }, 100, false));
                 });
 
                 // #6: Use `$window.addEventListener` instead of `angular.element` to avoid the jQuery-specific `event.originalEvent`
-                'localStorage' === storageType && $window.addEventListener && $window.addEventListener('storage', function(event) {
-                    if ('ngStorage-' === event.key.slice(0, 10)) {
-                        event.newValue ? $storage[event.key.slice(10)] = angular.fromJson(event.newValue) : delete $storage[event.key.slice(10)];
+                $window.addEventListener && $window.addEventListener('storage', function (event) {
+                    if ($window.document && $window.document.hasFocus && $window.document.hasFocus()) {
+                        // the specs say that the storage event should only be fired in other tabs/windows,
+                        //      but IE will fire it in all of them
+                        return;
+                    }
 
-                        _last$storage = angular.copy($storage);
+                    // need to check ngStorageUpdated instead of the 'real' values
+                    //      because in IE if the value is too big it won't fire the event
+                    if (updatedKeyPrefix === event.key.slice(0, updatedKeyPrefix.length)) {
+                        if (!event.newValue) {
+                            // if the updated key was deleted, don't need to update storage
+                            return;
+                        }
 
-                        $rootScope.$apply();
+                        var k = event.key.slice(updatedKeyPrefix.length);
+                        // timeout needed otherwise webStorage isn't up to date in the other window
+                        $window.setTimeout(function () {
+                            var newValue = webStorage.getItem('ngStorage-' + k);
+                            newValue ? $storage[k] = deserializer(newValue) : delete $storage[k];
+
+                            _last$storage = angular.copy($storage);
+
+                            $rootScope.$apply();
+                            $rootScope.$emit(updatedKeyPrefix + k);
+                        });
                     }
                 });
 
                 return $storage;
             }
         ];
+      };
     }
 
-})();
+}));
